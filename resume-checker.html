@@ -330,59 +330,9 @@
             };
             
             const analyzeTemplateLayout = (text, textItems) => {
-                let issueCount = 0;  // Count how many red flags we find
-                
-                // Check 1: Very short average line length (suggests columns/narrow sidebars)
-                const lines = text.split('\n').filter(line => line.trim().length > 0);
-                const avgLineLength = lines.reduce((sum, line) => sum + line.length, 0) / lines.length;
-                
-                // Make this threshold much stricter - under 20 chars is definitely a problem
-                if (avgLineLength < 20 && lines.length > 15) {
-                    issueCount++;
-                }
-                
-                // Check 2: Contact info appearing late in document (suggests sidebar)
-                const firstQuarter = text.slice(0, text.length / 4);
-                const restOfDoc = text.slice(text.length / 4);
-                const contactKeywords = ['@', 'email', 'phone', 'linkedin', 'tel:', 'mailto:'];
-                
-                // Count contact keywords in each section
-                const contactInFirst = contactKeywords.filter(kw => firstQuarter.toLowerCase().includes(kw)).length;
-                const contactInRest = contactKeywords.filter(kw => restOfDoc.toLowerCase().includes(kw)).length;
-                
-                // Only flag if contact info is MUCH more prevalent later (clear sidebar pattern)
-                if (contactInRest > contactInFirst + 2) {
-                    issueCount++;
-                }
-                
-                // Check 3: Excessive decorative special characters (not including bullet points)
-                const decorativeChars = text.match(/[►◆◇★☆♦♥♠♣]/g) || [];
-                if (decorativeChars.length > 15) {
-                    issueCount++;
-                }
-                
-                // Check 4: Multiple occurrences of same contact info (suggests repeated headers/footers)
-                const emailMatches = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
-                const uniqueEmails = [...new Set(emailMatches)];
-                
-                // Only flag if SAME email appears 3+ times
-                if (uniqueEmails.length > 0) {
-                    const maxOccurrences = Math.max(...uniqueEmails.map(email => 
-                        emailMatches.filter(e => e === email).length
-                    ));
-                    if (maxOccurrences >= 3) {
-                        issueCount++;
-                    }
-                }
-                
-                // Check 5: Look for common template service indicators
-                const templateIndicators = ['canva', 'resume.io', 'zety', 'novoresume'];
-                if (templateIndicators.some(indicator => text.toLowerCase().includes(indicator))) {
-                    issueCount += 2;  // This is a strong signal
-                }
-                
-                // Only flag as problematic if we found 2+ issues (not just one)
-                return issueCount >= 2;
+                // Template detection disabled - too many false positives
+                // This will need manual review during appointments
+                return false;
             };
 
             const extractTextFromDOCX = async (file) => {
@@ -660,6 +610,41 @@
                         Upload your resume to check it against TUJ Career Services standards
                     </p>
 
+                    <div style={{ 
+                        backgroundColor: '#f9f9f9', 
+                        padding: '20px', 
+                        borderRadius: '8px', 
+                        marginBottom: '25px',
+                        fontSize: '14px',
+                        lineHeight: '1.6'
+                    }}>
+                        <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#333' }}>About This Tool</h3>
+                        <p style={{ marginBottom: '10px' }}>
+                            This tool checks for common formatting and content issues in your resume, including:
+                        </p>
+                        <ul style={{ marginLeft: '20px', marginBottom: '15px' }}>
+                            <li>Length and formatting problems</li>
+                            <li>Graduation date format</li>
+                            <li>Outdated information (high school, old activities)</li>
+                            <li>Subjective language and first-person pronouns</li>
+                            <li>Missing or weak bullet points</li>
+                        </ul>
+                        <p style={{ marginBottom: '10px' }}>
+                            <strong>⚠️ Important:</strong> We strongly recommend NOT using templates with columns, sidebars, decorative elements, or photos. 
+                            These formats often fail Applicant Tracking Systems (ATS). Use a simple, single-column format with standard section headers.
+                        </p>
+                        <p>
+                            <strong>Need a template?</strong> Download the official TUJ resume template: <a 
+                                href="https://careercenter.temple.edu/students/grow/build-your-resume" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                style={{ color: '#9d1535', textDecoration: 'underline' }}
+                            >
+                                Temple Resume Guide
+                            </a>
+                        </p>
+                    </div>
+
                     {error && (
                         <div className="error-message">
                             {error}
@@ -767,3 +752,4 @@
     </script>
 </body>
 </html>
+
