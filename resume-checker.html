@@ -311,8 +311,7 @@
                 const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
                 const numPages = pdf.numPages;
                 let fullText = '';
-                let hasColoredElements = false;
-                let colorCount = 0;
+                let textItems = [];
                 
                 for (let i = 1; i <= numPages; i++) {
                     const page = await pdf.getPage(i);
@@ -320,42 +319,69 @@
                     const pageText = textContent.items.map(item => item.str).join(' ');
                     fullText += pageText + '\n';
                     
-                    // Try to detect colored elements (template designs)
-                    // Only flag if there are MULTIPLE obvious colored elements (not just text anti-aliasing)
-                    try {
-                        const ops = await page.getOperatorList();
-                        for (let j = 0; j < ops.fnArray.length; j++) {
-                            if (ops.fnArray[j] === pdfjsLib.OPS.setFillRGBColor || 
-                                ops.fnArray[j] === pdfjsLib.OPS.setStrokeRGBColor) {
-                                const args = ops.argsArray[j];
-                                if (args && args.length >= 3) {
-                                    const [r, g, b] = args;
-                                    // Only count obvious colors (not black, white, or very dark grays)
-                                    const isBlack = (r === 0 && g === 0 && b === 0);
-                                    const isWhite = (r === 1 && g === 1 && b === 1) || (r > 0.95 && g > 0.95 && b > 0.95);
-                                    const isDarkGray = (r < 0.3 && g < 0.3 && b < 0.3 && r === g && g === b);
-                                    
-                                    if (!isBlack && !isWhite && !isDarkGray) {
-                                        colorCount++;
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        // Silently fail if we can't detect colors
-                    }
+                    // Collect text items with their positions for layout analysis
+                    textItems = textItems.concat(textContent.items);
                 }
                 
-                // Only flag if there are 10+ colored elements (indicates designed template, not just accidental colors)
-                hasColoredElements = colorCount >= 10;
+                // Analyze for template issues
+                const templateIssues = analyzeTemplateLayout(fullText, textItems);
                 
-                return { text: fullText, numPages, hasColoredElements };
+                return { text: fullText, numPages, templateIssues };
+            };
+            
+            const analyzeTemplateLayout = (text, textItems) => {
+                let hasTemplateIssues = false;
+                
+                // Check 1: Very short average line length (suggests columns/narrow sidebars)
+                const lines = text.split('\n').filter(line => line.trim().length > 0);
+                const avgLineLength = lines.reduce((sum, line) => sum + line.length, 0) / lines.length;
+                
+                // If average line is very short (under 30 chars), might be columnar layout
+                if (avgLineLength < 30 && lines.length > 10) {
+                    hasTemplateIssues = true;
+                }
+                
+                // Check 2: Contact info appearing late in document (suggests sidebar)
+                const firstThird = text.slice(0, text.length / 3);
+                const lastTwoThirds = text.slice(text.length / 3);
+                const contactKeywords = ['@', 'email', 'phone', 'linkedin', 'tel:', 'mailto:'];
+                
+                // Count contact keywords in each section
+                const contactInFirst = contactKeywords.filter(kw => firstThird.toLowerCase().includes(kw)).length;
+                const contactInLast = contactKeywords.filter(kw => lastTwoThirds.toLowerCase().includes(kw)).length;
+                
+                // If more contact info in last 2/3 than first 1/3, suggests weird layout
+                if (contactInLast > contactInFirst && contactInFirst < 2) {
+                    hasTemplateIssues = true;
+                }
+                
+                // Check 3: Excessive special characters/symbols (decorative templates)
+                const specialChars = text.match(/[►▪▫●○◆◇■□★☆♦♥♠♣]/g) || [];
+                if (specialChars.length > 20) {
+                    hasTemplateIssues = true;
+                }
+                
+                // Check 4: Multiple occurrences of contact info (suggests repeated headers/footers)
+                const emailMatches = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+                const phoneMatches = text.match(/[\d\-\(\)\+]{10,}/g) || [];
+                if (emailMatches.length > 2 || phoneMatches.length > 2) {
+                    hasTemplateIssues = true;
+                }
+                
+                return hasTemplateIssues;
             };
 
             const extractTextFromDOCX = async (file) => {
                 const arrayBuffer = await file.arrayBuffer();
                 const result = await mammoth.extractRawText({ arrayBuffer });
-                return { text: result.value, numPages: 1, hasColoredElements: false }; // Can't easily detect colors in DOCX
+                
+                // Can't do detailed layout analysis on DOCX, but can check for some patterns
+                const text = result.value;
+                const lines = text.split('\n').filter(line => line.trim().length > 0);
+                const avgLineLength = lines.reduce((sum, line) => sum + line.length, 0) / (lines.length || 1);
+                const hasTemplateIssues = avgLineLength < 30 && lines.length > 10;
+                
+                return { text: text, numPages: 1, templateIssues: hasTemplateIssues };
             };
 
             const analyzeResume = async () => {
@@ -373,7 +399,7 @@
                         extractedData = await extractTextFromDOCX(file);
                     }
                     
-                    const issues = checkResumeIssues(extractedData.text, extractedData.numPages, extractedData.hasColoredElements);
+                    const issues = checkResumeIssues(extractedData.text, extractedData.numPages, extractedData.templateIssues);
                     setResults(issues);
                 } catch (err) {
                     setError('Error analyzing resume. Please try again or contact Career Services if the problem persists.');
@@ -383,16 +409,16 @@
                 }
             };
 
-            const checkResumeIssues = (text, numPages, hasColoredElements) => {
+            const checkResumeIssues = (text, numPages, hasTemplateIssues) => {
                 const issues = [];
                 const textLower = text.toLowerCase();
                 
-                // Check 0: Template design issues (colored elements)
-                if (hasColoredElements) {
+                // Check 0: Problematic template layout patterns
+                if (hasTemplateIssues) {
                     issues.push({
-                        title: 'Overly designed template detected',
-                        description: 'Your resume appears to use colors, graphics, or decorative elements. Use a clean, simple format with black text on white background. Fancy templates often fail Applicant Tracking Systems (ATS) and distract from your content.',
-                        severity: 'error'
+                        title: 'Complex template layout detected',
+                        description: 'Your resume may be using a template with columns, sidebars, or decorative elements. These formats often fail Applicant Tracking Systems (ATS). Use a simple, single-column format with standard section headers.',
+                        severity: 'warning'
                     });
                 }
                 
