@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TUJ Resume Checker</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        
+        #root {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 40px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #9d1535;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+        
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 30px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .upload-area:hover {
+            border-color: #9d1535;
+            background-color: #fafafa;
+        }
+        
+        .upload-area.dragover {
+            border-color: #9d1535;
+            background-color: #fef5f7;
+        }
+        
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        
+        .upload-button {
+            background-color: #9d1535;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .upload-button:hover {
+            background-color: #7d1129;
+        }
+        
+        .upload-button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        .analyzing {
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #9d1535;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .results {
+            margin-top: 30px;
+        }
+        
+        .results-header {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #9d1535;
+        }
+        
+        .results-header h2 {
+            color: #9d1535;
+            font-size: 22px;
+            margin-bottom: 5px;
+        }
+        
+        .issue-count {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .issue-item {
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #e74c3c;
+            background-color: #fef5f5;
+            border-radius: 4px;
+        }
+        
+        .issue-item.warning {
+            border-left-color: #f39c12;
+            background-color: #fef9f5;
+        }
+        
+        .issue-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+            font-size: 16px;
+        }
+        
+        .issue-description {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .success-message {
+            background-color: #f0f9f4;
+            border-left: 4px solid #27ae60;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .success-message h3 {
+            color: #27ae60;
+            margin-bottom: 10px;
+        }
+        
+        .next-steps {
+            background-color: #f0f7ff;
+            border-left: 4px solid #3498db;
+            padding: 20px;
+            border-radius: 4px;
+            margin-top: 30px;
+        }
+        
+        .next-steps h3 {
+            color: #2980b9;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        
+        .next-steps p {
+            color: #555;
+            margin-bottom: 15px;
+        }
+        
+        .appointment-button {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 4px;
+            text-decoration: none;
+            transition: background-color 0.3s;
+            font-weight: 600;
+        }
+        
+        .appointment-button:hover {
+            background-color: #2980b9;
+        }
+        
+        .reset-button {
+            background-color: #95a5a6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background-color 0.3s;
+        }
+        
+        .reset-button:hover {
+            background-color: #7f8c8d;
+        }
+        
+        .error-message {
+            background-color: #fee;
+            border-left: 4px solid #e74c3c;
+            padding: 15px;
+            border-radius: 4px;
+            color: #c0392b;
+            margin-bottom: 20px;
+        }
+        
+        .file-info {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useRef } = React;
+
+        // Configure PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        function ResumeChecker() {
+            const [file, setFile] = useState(null);
+            const [analyzing, setAnalyzing] = useState(false);
+            const [results, setResults] = useState(null);
+            const [error, setError] = useState(null);
+            const [dragOver, setDragOver] = useState(false);
+            const fileInputRef = useRef(null);
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setDragOver(true);
+            };
+
+            const handleDragLeave = () => {
+                setDragOver(false);
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const droppedFile = e.dataTransfer.files[0];
+                if (droppedFile) {
+                    handleFileSelect(droppedFile);
+                }
+            };
+
+            const handleFileSelect = (selectedFile) => {
+                const validTypes = [
+                    'application/pdf',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'application/msword'
+                ];
+                
+                if (!validTypes.includes(selectedFile.type)) {
+                    setError('Please upload a PDF or Word document (.pdf, .docx, .doc)');
+                    return;
+                }
+                
+                setFile(selectedFile);
+                setError(null);
+            };
+
+            const handleFileInputChange = (e) => {
+                const selectedFile = e.target.files[0];
+                if (selectedFile) {
+                    handleFileSelect(selectedFile);
+                }
+            };
+
+            const extractTextFromPDF = async (file) => {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const numPages = pdf.numPages;
+                let fullText = '';
+                
+                for (let i = 1; i <= numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(' ');
+                    fullText += pageText + '\n';
+                }
+                
+                return { text: fullText, numPages };
+            };
+
+            const extractTextFromDOCX = async (file) => {
+                const arrayBuffer = await file.arrayBuffer();
+                const result = await mammoth.extractRawText({ arrayBuffer });
+                return { text: result.value, numPages: 1 }; // Approximate page count
+            };
+
+            const analyzeResume = async () => {
+                if (!file) return;
+                
+                setAnalyzing(true);
+                setError(null);
+                
+                try {
+                    let extractedData;
+                    
+                    if (file.type === 'application/pdf') {
+                        extractedData = await extractTextFromPDF(file);
+                    } else {
+                        extractedData = await extractTextFromDOCX(file);
+                    }
+                    
+                    const issues = checkResumeIssues(extractedData.text, extractedData.numPages);
+                    setResults(issues);
+                } catch (err) {
+                    setError('Error analyzing resume. Please try again or contact Career Services if the problem persists.');
+                    console.error(err);
+                } finally {
+                    setAnalyzing(false);
+                }
+            };
+
+            const checkResumeIssues = (text, numPages) => {
+                const issues = [];
+                const textLower = text.toLowerCase();
+                
+                // Check 1: Page length
+                if (numPages > 1) {
+                    issues.push({
+                        title: 'Resume exceeds one page',
+                        description: 'Keep your resume to one page maximum for undergraduate students with less than 10 years of full-time work experience.',
+                        severity: 'error'
+                    });
+                }
+                
+                // Check 2: Graduation date format
+                const invalidGradFormats = /\b(spring|summer|fall|winter|autumn)\s+\d{4}\b/gi;
+                if (invalidGradFormats.test(text)) {
+                    const matches = text.match(invalidGradFormats);
+                    issues.push({
+                        title: 'Graduation date format incorrect',
+                        description: `Found: "${matches[0]}". Use month name + year format. Valid graduation months: May, August, or December (e.g., "December 2026").`,
+                        severity: 'error'
+                    });
+                }
+                
+                // Check 3: High school information
+                if (/high\s+school/i.test(text)) {
+                    issues.push({
+                        title: 'High school information included',
+                        description: 'Remove high school from your Education section once you\'re in college (unless in rare circumstances where it\'s highly relevant).',
+                        severity: 'error'
+                    });
+                }
+                
+                // Check 4: Subjective language in skills
+                const subjectiveTerms = [
+                    'good communicator', 'great communicator', 'excellent communicator',
+                    'team player', 'hard worker', 'fast learner', 'quick learner',
+                    'self-motivated', 'detail-oriented', 'problem solver',
+                    'works well', 'strong work ethic', 'dedicated', 'passionate'
+                ];
+                
+                const foundSubjective = subjectiveTerms.filter(term => 
+                    textLower.includes(term)
+                );
+                
+                if (foundSubjective.length > 0) {
+                    issues.push({
+                        title: 'Subjective language in Skills or Profile section',
+                        description: `Found subjective terms like "${foundSubjective.slice(0, 2).join('", "')}". Remove self-assessments. Include only objective, quantifiable skills (software, languages with proficiency levels, technical certifications).`,
+                        severity: 'error'
+                    });
+                }
+                
+                // Check 5: First-person pronouns
+                const firstPersonPronouns = /\b(I|my|me|we|our|us)\b/g;
+                const pronounMatches = text.match(firstPersonPronouns);
+                if (pronounMatches && pronounMatches.length > 3) { // Allow a few edge cases
+                    issues.push({
+                        title: 'First-person pronouns detected',
+                        description: 'Avoid using "I," "my," "me" in your resume. Start bullet points with strong action verbs instead (e.g., "Managed" instead of "I managed").',
+                        severity: 'error'
+                    });
+                }
+                
+                // Check 6: Empty or placeholder experience section
+                if (/currently looking for|seeking.*(opportunity|position|employment)/i.test(text)) {
+                    issues.push({
+                        title: 'Placeholder text in Experience section',
+                        description: 'Remove placeholder text like "Currently looking for opportunities." Instead, add relevant experience, volunteer work, class projects, or campus activities.',
+                        severity: 'error'
+                    });
+                }
+                
+                // Check 7: Profile/Summary that's too generic
+                const genericPhrases = [
+                    'resourceful and dedicated',
+                    'hard-working professional',
+                    'detail-oriented individual',
+                    'seeking a challenging position'
+                ];
+                
+                const hasGenericProfile = genericPhrases.some(phrase => 
+                    textLower.includes(phrase)
+                );
+                
+                if (hasGenericProfile) {
+                    issues.push({
+                        title: 'Generic Profile/Summary section',
+                        description: 'Your Profile section contains vague, generic language. Consider removing it entirely or replacing with specific, quantifiable accomplishments. Generic statements should be demonstrated through your experience bullets, not stated.',
+                        severity: 'warning'
+                    });
+                }
+                
+                // Check 8: Missing bullet points (looking for jobs without accomplishments)
+                // This is a heuristic: if we see job titles but very few bullet point markers
+                const bulletMarkers = (text.match(/[•●○◦▪▫■□]/g) || []).length;
+                const experienceKeywords = (text.match(/\b(intern|assistant|associate|specialist|coordinator|manager|analyst)\b/gi) || []).length;
+                
+                if (experienceKeywords >= 2 && bulletMarkers < experienceKeywords * 2) {
+                    issues.push({
+                        title: 'Experience entries may be missing bullet points',
+                        description: 'Each job should have 3-5 bullet points describing your accomplishments (not just duties). Focus on results and impact using action verbs.',
+                        severity: 'error'
+                    });
+                }
+                
+                // Check 9: Vague language in skills (decent, basic, good)
+                if (/\b(decent|basic|good|fair)\s+(japanese|english|chinese|korean|spanish|french)/i.test(text)) {
+                    issues.push({
+                        title: 'Vague language proficiency descriptions',
+                        description: 'Use objective measures for language skills instead of "decent," "basic," or "good." Use formats like "Japanese (JLPT N2)", "Spanish (Conversational)", or "English (Native)".',
+                        severity: 'error'
+                    });
+                }
+                
+                // Check 10: Age or other inappropriate personal information
+                if (/\b\d{1,2}\s+year[s]?\s+old\b/i.test(text)) {
+                    issues.push({
+                        title: 'Age included in resume',
+                        description: 'Remove your age from your resume. This is unnecessary personal information that can lead to discrimination.',
+                        severity: 'error'
+                    });
+                }
+                
+                return issues;
+            };
+
+            const reset = () => {
+                setFile(null);
+                setResults(null);
+                setError(null);
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
+            };
+
+            return (
+                <div className="container">
+                    <h1>TUJ Resume Checker</h1>
+                    <p className="subtitle">
+                        Upload your resume to check it against TUJ Career Services standards
+                    </p>
+
+                    {error && (
+                        <div className="error-message">
+                            {error}
+                        </div>
+                    )}
+
+                    {!results && !analyzing && (
+                        <>
+                            <div 
+                                className={`upload-area ${dragOver ? 'dragover' : ''}`}
+                                onClick={() => fileInputRef.current?.click()}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                            >
+                                <div className="upload-icon">📄</div>
+                                <p style={{ marginBottom: '15px', color: '#666' }}>
+                                    {file ? `Selected: ${file.name}` : 'Drop your resume here or click to browse'}
+                                </p>
+                                <p style={{ fontSize: '14px', color: '#999', marginBottom: '15px' }}>
+                                    Accepted formats: PDF, DOCX, DOC
+                                </p>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".pdf,.docx,.doc"
+                                    onChange={handleFileInputChange}
+                                />
+                            </div>
+                            
+                            {file && (
+                                <div style={{ textAlign: 'center' }}>
+                                    <button 
+                                        className="upload-button"
+                                        onClick={analyzeResume}
+                                    >
+                                        Check My Resume
+                                    </button>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {analyzing && (
+                        <div className="analyzing">
+                            <div className="spinner"></div>
+                            <p>Analyzing your resume...</p>
+                        </div>
+                    )}
+
+                    {results && (
+                        <div className="results">
+                            <div className="results-header">
+                                <h2>Resume Check Complete</h2>
+                                <p className="issue-count">
+                                    {results.length === 0 
+                                        ? 'No issues found!' 
+                                        : `${results.length} issue${results.length === 1 ? '' : 's'} found`}
+                                </p>
+                            </div>
+
+                            {results.length === 0 ? (
+                                <div className="success-message">
+                                    <h3>✓ Great job!</h3>
+                                    <p>Your resume passes all our automated checks. However, we still recommend scheduling an appointment with Career Services for a final human review to ensure your content is strong and tailored to your goals.</p>
+                                </div>
+                            ) : (
+                                <>
+                                    {results.map((issue, index) => (
+                                        <div key={index} className={`issue-item ${issue.severity}`}>
+                                            <div className="issue-title">✗ {issue.title}</div>
+                                            <div className="issue-description">{issue.description}</div>
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+
+                            <div className="next-steps">
+                                <h3>Next Steps</h3>
+                                <p>
+                                    After making these changes, please schedule an appointment with our team for a final review! 
+                                    Our career advisors will help you strengthen your content and ensure your resume effectively showcases your accomplishments.
+                                </p>
+                                <a 
+                                    href="https://temple.joinhandshake.com/appointments" 
+                                    className="appointment-button"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    Schedule an Appointment
+                                </a>
+                            </div>
+
+                            <button className="reset-button" onClick={reset}>
+                                Check Another Resume
+                            </button>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<ResumeChecker />);
+    </script>
+</body>
+</html>
