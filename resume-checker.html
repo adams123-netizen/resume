@@ -311,21 +311,47 @@
                 const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
                 const numPages = pdf.numPages;
                 let fullText = '';
+                let hasColoredElements = false;
                 
                 for (let i = 1; i <= numPages; i++) {
                     const page = await pdf.getPage(i);
                     const textContent = await page.getTextContent();
                     const pageText = textContent.items.map(item => item.str).join(' ');
                     fullText += pageText + '\n';
+                    
+                    // Try to detect colored elements (template designs)
+                    try {
+                        const ops = await page.getOperatorList();
+                        // Look for color operators in the PDF
+                        for (let j = 0; j < ops.fnArray.length; j++) {
+                            // Common color operators: setFillRGBColor, setStrokeRGBColor, etc.
+                            if (ops.fnArray[j] === pdfjsLib.OPS.setFillRGBColor || 
+                                ops.fnArray[j] === pdfjsLib.OPS.setStrokeRGBColor ||
+                                ops.fnArray[j] === pdfjsLib.OPS.setFillColorSpace ||
+                                ops.fnArray[j] === pdfjsLib.OPS.shadingFill) {
+                                const args = ops.argsArray[j];
+                                // Check if it's not black (0,0,0) or white (1,1,1)
+                                if (args && args.length >= 3) {
+                                    const [r, g, b] = args;
+                                    if (!((r === 0 && g === 0 && b === 0) || (r === 1 && g === 1 && b === 1))) {
+                                        hasColoredElements = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // Silently fail if we can't detect colors
+                    }
                 }
                 
-                return { text: fullText, numPages };
+                return { text: fullText, numPages, hasColoredElements };
             };
 
             const extractTextFromDOCX = async (file) => {
                 const arrayBuffer = await file.arrayBuffer();
                 const result = await mammoth.extractRawText({ arrayBuffer });
-                return { text: result.value, numPages: 1 }; // Approximate page count
+                return { text: result.value, numPages: 1, hasColoredElements: false }; // Can't easily detect colors in DOCX
             };
 
             const analyzeResume = async () => {
@@ -343,7 +369,7 @@
                         extractedData = await extractTextFromDOCX(file);
                     }
                     
-                    const issues = checkResumeIssues(extractedData.text, extractedData.numPages);
+                    const issues = checkResumeIssues(extractedData.text, extractedData.numPages, extractedData.hasColoredElements);
                     setResults(issues);
                 } catch (err) {
                     setError('Error analyzing resume. Please try again or contact Career Services if the problem persists.');
@@ -353,9 +379,18 @@
                 }
             };
 
-            const checkResumeIssues = (text, numPages) => {
+            const checkResumeIssues = (text, numPages, hasColoredElements) => {
                 const issues = [];
                 const textLower = text.toLowerCase();
+                
+                // Check 0: Template design issues (colored elements)
+                if (hasColoredElements) {
+                    issues.push({
+                        title: 'Overly designed template detected',
+                        description: 'Your resume appears to use colors, graphics, or decorative elements. Use a clean, simple format with black text on white background. Fancy templates often fail Applicant Tracking Systems (ATS) and distract from your content.',
+                        severity: 'error'
+                    });
+                }
                 
                 // Check 1: Page length
                 if (numPages > 1) {
@@ -373,6 +408,17 @@
                     issues.push({
                         title: 'Graduation date format incorrect',
                         description: `Found: "${matches[0]}". Use month name + year format. Valid graduation months: May, August, or December (e.g., "December 2026").`,
+                        severity: 'error'
+                    });
+                }
+                
+                // Check 2b: Missing expected graduation date for Temple
+                const hasTemple = /temple\s+university/i.test(text);
+                const hasExpectedGrad = /expected\s+graduation|graduation.*(?:may|august|december)\s+\d{4}/i.test(text);
+                if (hasTemple && !hasExpectedGrad && !invalidGradFormats.test(text)) {
+                    issues.push({
+                        title: 'Missing expected graduation date',
+                        description: 'Your Education section should include "Expected Graduation: [Month] [Year]" (e.g., "Expected Graduation: May 2026"). Use May, August, or December.',
                         severity: 'error'
                     });
                 }
@@ -426,6 +472,33 @@
                     });
                 }
                 
+                // Check 6b: Very thin/empty Experience section
+                const hasExperienceSection = /(?:professional\s+)?experience|employment\s+history|work\s+history/i.test(text);
+                const wordCount = text.split(/\s+/).length;
+                const bulletCount = (text.match(/[•●○◦▪▫■□-]\s/g) || []).length;
+                
+                // If resume is very short (under 150 words) and has an experience section, it's likely empty
+                if (hasExperienceSection && wordCount < 200 && bulletCount < 3) {
+                    issues.push({
+                        title: 'Experience section appears empty or too brief',
+                        description: 'Your Experience section needs substantial content. Add work experience, internships, volunteer roles, or relevant class projects. Each position should have 3-5 bullet points describing accomplishments.',
+                        severity: 'error'
+                    });
+                }
+                
+                // Check 6c: Potential double-spacing issue (detecting excessive whitespace)
+                const lines = text.split('\n');
+                const emptyLines = lines.filter(line => line.trim() === '').length;
+                const totalLines = lines.length;
+                
+                if (totalLines > 20 && emptyLines / totalLines > 0.4) {
+                    issues.push({
+                        title: 'Excessive spacing detected',
+                        description: 'Your resume appears to have too much white space or double-spacing. Use single spacing throughout and add spacing deliberately between sections only. This will help you fit more content on one page.',
+                        severity: 'warning'
+                    });
+                }
+                
                 // Check 7: Profile/Summary that's too generic
                 const genericPhrases = [
                     'resourceful and dedicated',
@@ -449,14 +522,59 @@
                 // Check 8: Missing bullet points (looking for jobs without accomplishments)
                 // This is a heuristic: if we see job titles but very few bullet point markers
                 const bulletMarkers = (text.match(/[•●○◦▪▫■□]/g) || []).length;
-                const experienceKeywords = (text.match(/\b(intern|assistant|associate|specialist|coordinator|manager|analyst)\b/gi) || []).length;
+                const dashBullets = (text.match(/^\s*[-–—]\s+/gm) || []).length;
+                const totalBullets = bulletMarkers + dashBullets;
+                const experienceKeywords = (text.match(/\b(intern|internship|assistant|associate|specialist|coordinator|manager|analyst|barista|server|tutor|teacher|representative|member|volunteer)\b/gi) || []).length;
                 
-                if (experienceKeywords >= 2 && bulletMarkers < experienceKeywords * 2) {
+                if (experienceKeywords >= 2 && totalBullets < experienceKeywords * 2) {
                     issues.push({
                         title: 'Experience entries may be missing bullet points',
                         description: 'Each job should have 3-5 bullet points describing your accomplishments (not just duties). Focus on results and impact using action verbs.',
                         severity: 'error'
                     });
+                }
+                
+                // Check 8.5: Paragraph format instead of bullets (detect long sentences in experience section)
+                // Look for Experience section followed by sentences but no bullets
+                const experienceSection = text.match(/(?:professional\s+)?experience|employment\s+history|work\s+history([\s\S]{200,800})/i);
+                if (experienceSection && totalBullets < 3) {
+                    // Check if there are multiple sentences (periods followed by spaces/capitals)
+                    const sentences = (experienceSection[0].match(/\.\s+[A-Z]/g) || []).length;
+                    if (sentences >= 3) {
+                        issues.push({
+                            title: 'Experience section uses paragraph format instead of bullet points',
+                            description: 'Format each job\'s accomplishments as 3-5 bullet points (using •, ●, or -), not paragraphs. Bullet points make your resume easier to scan quickly and help highlight individual achievements.',
+                            severity: 'error'
+                        });
+                    }
+                }
+                
+                // Check 8b: Bullet points not starting with action verbs
+                // Look for bullet points that start with "I" or common non-verb patterns
+                const bulletPointsWithI = text.match(/[•●○◦▪▫■□-]\s+I\s+/gi);
+                if (bulletPointsWithI && bulletPointsWithI.length >= 2) {
+                    issues.push({
+                        title: 'Bullet points starting with "I"',
+                        description: 'Start bullet points with strong action verbs in past tense (e.g., "Managed," "Developed," "Coordinated") instead of "I managed," "I developed," etc.',
+                        severity: 'error'
+                    });
+                }
+                
+                // Check for bullets that might not start with verbs (very basic check)
+                const bulletLines = text.match(/[•●○◦▪▫■□-]\s+([A-Z][a-z]+)/g);
+                if (bulletLines && bulletLines.length >= 3) {
+                    const nonVerbStarts = bulletLines.filter(line => {
+                        // Check if starts with common non-verb words
+                        return /[•●○◦▪▫■□-]\s+(The|A|An|This|My|Our|In|At|For|With|As)\s+/i.test(line);
+                    });
+                    
+                    if (nonVerbStarts.length >= 2) {
+                        issues.push({
+                            title: 'Bullet points may not start with action verbs',
+                            description: 'Each bullet point should start with a strong action verb (e.g., "Managed," "Created," "Analyzed"). Avoid starting with articles (a, an, the) or other non-action words.',
+                            severity: 'warning'
+                        });
+                    }
                 }
                 
                 // Check 9: Vague language in skills (decent, basic, good)
