@@ -312,6 +312,7 @@
                 const numPages = pdf.numPages;
                 let fullText = '';
                 let hasColoredElements = false;
+                let colorCount = 0;
                 
                 for (let i = 1; i <= numPages; i++) {
                     const page = await pdf.getPage(i);
@@ -320,22 +321,22 @@
                     fullText += pageText + '\n';
                     
                     // Try to detect colored elements (template designs)
+                    // Only flag if there are MULTIPLE obvious colored elements (not just text anti-aliasing)
                     try {
                         const ops = await page.getOperatorList();
-                        // Look for color operators in the PDF
                         for (let j = 0; j < ops.fnArray.length; j++) {
-                            // Common color operators: setFillRGBColor, setStrokeRGBColor, etc.
                             if (ops.fnArray[j] === pdfjsLib.OPS.setFillRGBColor || 
-                                ops.fnArray[j] === pdfjsLib.OPS.setStrokeRGBColor ||
-                                ops.fnArray[j] === pdfjsLib.OPS.setFillColorSpace ||
-                                ops.fnArray[j] === pdfjsLib.OPS.shadingFill) {
+                                ops.fnArray[j] === pdfjsLib.OPS.setStrokeRGBColor) {
                                 const args = ops.argsArray[j];
-                                // Check if it's not black (0,0,0) or white (1,1,1)
                                 if (args && args.length >= 3) {
                                     const [r, g, b] = args;
-                                    if (!((r === 0 && g === 0 && b === 0) || (r === 1 && g === 1 && b === 1))) {
-                                        hasColoredElements = true;
-                                        break;
+                                    // Only count obvious colors (not black, white, or very dark grays)
+                                    const isBlack = (r === 0 && g === 0 && b === 0);
+                                    const isWhite = (r === 1 && g === 1 && b === 1) || (r > 0.95 && g > 0.95 && b > 0.95);
+                                    const isDarkGray = (r < 0.3 && g < 0.3 && b < 0.3 && r === g && g === b);
+                                    
+                                    if (!isBlack && !isWhite && !isDarkGray) {
+                                        colorCount++;
                                     }
                                 }
                             }
@@ -344,6 +345,9 @@
                         // Silently fail if we can't detect colors
                     }
                 }
+                
+                // Only flag if there are 10+ colored elements (indicates designed template, not just accidental colors)
+                hasColoredElements = colorCount >= 10;
                 
                 return { text: fullText, numPages, hasColoredElements };
             };
